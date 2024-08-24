@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chasseur de Primes Maladroit</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        #game-container {
+            text-align: center;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            position: relative;
+        }
+        #target-container {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #target {
+            font-size: 100px;
+            user-select: none;
+            transition: all 0.2s ease;
+        }
+        #target-lives {
+            font-size: 12px;
+            height: 15px;
+            text-align: center;
+            margin-bottom: 5px;
+        }
+        #player-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        #player-lives, #timer {
+            font-size: 24px;
+            margin: 0 10px;
+        }
+        #timer {
+            display: flex;
+            align-items: center;
+        }
+        #timer-count {
+            margin-right: 10px;
+            font-weight: bold;
+            transition: color 0.3s ease;
+        }
+        #money, #total-captures, #stats {
+            font-size: 18px;
+            margin: 10px 0;
+        }
+        #message {
+            font-size: 18px;
+            margin-top: 20px;
+            min-height: 50px;
+            color: #333;
+        }
+        #play-area {
+            width: 600px;
+            height: 400px;
+            border: 2px solid #ccc;
+            position: relative;
+            overflow: hidden;
+            margin: 20px auto;
+            cursor: none;
+        }
+        #crosshair {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            pointer-events: none;
+            z-index: 1000;
+        }
+        #game-over {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+        progress {
+            width: 100%;
+            height: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <h1>Chasseur de Primes Maladroit</h1>
+        <p>Utilisez le viseur pour attraper les cibles mouvantes !</p>
+        <div id="player-info">
+            <div id="player-lives">❤️❤️❤️</div>
+            <div id="timer">
+                <span id="timer-count">15</span>
+                <progress value="15" max="15"></progress>
+            </div>
+        </div>
+        <div id="play-area">
+            <div id="target-container">
+                <div id="target-lives"></div>
+                <div id="target"></div>
+            </div>
+            <svg id="crosshair" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="45" fill="none" stroke="red" stroke-width="2"/>
+                <line x1="50" y1="0" x2="50" y2="100" stroke="red" stroke-width="2"/>
+                <line x1="0" y1="50" x2="100" y2="50" stroke="red" stroke-width="2"/>
+            </svg>
+        </div>
+        <div id="money">Argent : 0 pièces</div>
+        <div id="total-captures">Cibles capturées : 0</div>
+        <div id="message"></div>
+        <div id="stats">
+            Temps moyen de capture : 0.00s
+        </div>
+        <div id="game-over">
+            <h2>Game Over</h2>
+            <div id="final-stats"></div>
+            <button onclick="restartGame()">Rejouer</button>
+        </div>
+    </div>
+
+    <script>
+        const targets = [
+            { emoji: '🕴️', name: "L'Insaisissable Lévitateur", minDelay: 1000, maxDelay: 3000, minCaptures: 0 },
+            { emoji: '🧍', name: "Le Statufié Sournois", minDelay: 500, maxDelay: 2500, minCaptures: 0 },
+            { emoji: '🤸', name: "L'Acrobate Agile", minDelay: 500, maxDelay: 2000, minCaptures: 1 },
+            { emoji: '🏃‍♀️', name: "La Sprinteuse Fourbe", minDelay: 400, maxDelay: 1900, minCaptures: 5 },
+            { emoji: '🏃', name: "Le Marathonien Mystérieux", minDelay: 400, maxDelay: 1700, minCaptures: 10 },
+            { emoji: '💃', name: "La Danseuse Diabolique", minDelay: 300, maxDelay: 1500, minCaptures: 20 },
+            { emoji: '🕺', name: "Le Roi du Disco Déjanté", minDelay: 300, maxDelay: 1000, minCaptures: 30 }
+        ];
+
+        const targetContainer = document.getElementById('target-container');
+        const target = document.getElementById('target');
+        const targetLives = document.getElementById('target-lives');
+        const moneyDisplay = document.getElementById('money');
+        const messageDisplay = document.getElementById('message');
+        const statsDisplay = document.getElementById('stats');
+        const totalCapturesDisplay = document.getElementById('total-captures');
+        const playerLivesDisplay = document.getElementById('player-lives');
+        const timerProgress = document.querySelector('#timer progress');
+        const timerCount = document.getElementById('timer-count');
+        const playArea = document.getElementById('play-area');
+        const crosshair = document.getElementById('crosshair');
+        const gameOverScreen = document.getElementById('game-over');
+        const finalStatsDisplay = document.getElementById('final-stats');
+
+        let money = 0;
+        let moveTimeout;
+        let totalMoves = 0;
+        let successfulHits = 0;
+        let totalCaptureTime = 0;
+        let captureStartTime;
+        let currentTarget = { ...targets[0], lives: 3 };
+        let totalCaptures = 0;
+        let playerLives = 3;
+        let timeLeft = 15;
+        let timerInterval;
+
+        function updateLivesDisplay() {
+            targetLives.textContent = '❤️'.repeat(currentTarget.lives);
+        }
+
+        function getTimePercentage(current, total) {
+            return (current / total) * 100;
+        }
+
+        function updateTimer() {
+            timeLeft--;
+            timerProgress.value = timeLeft;
+            timerCount.textContent = timeLeft;
+
+            const percentage = getTimePercentage(timeLeft, 15);
+            if (percentage > 66) {
+                timerCount.style.color = 'green';
+            } else if (percentage > 33) {
+                timerCount.style.color = 'orange';
+            } else {
+                timerCount.style.color = 'red';
+            }
+
+            if (timeLeft <= 0) {
+                clearInterval(timerInterval);
+                targetEscaped();
+            }
+        }
+
+        function targetEscaped() {
+            const escapeMessages = [
+                `${currentTarget.name} s'est échappé en vous tirant la langue !`,
+                `Oups ! ${currentTarget.name} a disparu dans un nuage de fumée.`,
+                `${currentTarget.name} vous a posé un lapin. Littéralement.`
+            ];
+            showMessage(escapeMessages[Math.floor(Math.random() * escapeMessages.length)], "orange");
+            playerLives--;
+            playerLivesDisplay.textContent = '❤️'.repeat(playerLives);
+            if (playerLives <= 0) {
+                gameOver();
+            } else {
+                setTimeout(() => {
+                    changeTarget();
+                }, 2000);  // Attendre 2 secondes avant de changer de cible
+            }
+        }
+
+        function gameOver() {
+            clearTimeout(moveTimeout);
+            clearInterval(timerInterval);
+            gameOverScreen.style.display = 'flex';
+            const averageCaptureTime = totalCaptures > 0 ? totalCaptureTime / totalCaptures : 0;
+            finalStatsDisplay.innerHTML = `
+                <p>Argent total : ${money} pièces</p>
+                <p>Cibles capturées : ${totalCaptures}</p>
+                <p>Temps moyen de capture : ${averageCaptureTime.toFixed(2)}s</p>
+            `;
+        }
+
+        function restartGame() {
+            money = 0;
+            totalMoves = 0;
+            successfulHits = 0;
+            totalCaptureTime = 0;
+            totalCaptures = 0;
+            playerLives = 3;
+            gameOverScreen.style.display = 'none';
+            updateStats();
+            moneyDisplay.textContent = `Argent : ${money} pièces`;
+            totalCapturesDisplay.textContent = `Cibles capturées : ${totalCaptures}`;
+            playerLivesDisplay.textContent = '❤️'.repeat(playerLives);
+            changeTarget();
+        }
+
+        playArea.addEventListener('mousemove', (e) => {
+            const rect = playArea.getBoundingClientRect();
+            crosshair.style.left = `${e.clientX - rect.left - 20}px`;
+            crosshair.style.top = `${e.clientY - rect.top - 20}px`;
+        });
+
+        playArea.addEventListener('click', (e) => {
+            const targetRect = target.getBoundingClientRect();
+            const playAreaRect = playArea.getBoundingClientRect();
+            const clickX = e.clientX - playAreaRect.left;
+            const clickY = e.clientY - playAreaRect.top;
+
+            if (clickX >= targetRect.left - playAreaRect.left &&
+                clickX <= targetRect.right - playAreaRect.left &&
+                clickY >= targetRect.top - playAreaRect.top &&
+                clickY <= targetRect.bottom - playAreaRect.top) {
+                const currentTime = Date.now();
+                if (currentTarget.lives === 3) {
+                    captureStartTime = currentTime;
+                }
+                const touchTime = (currentTime - captureStartTime) / 1000;
+                let points = 1;
+                if (touchTime <= 1) points = 3;
+                else if (touchTime <= 2) points = 2;
+
+                money += points;
+                successfulHits++;
+                currentTarget.lives--;
+                updateLivesDisplay();
+
+                moneyDisplay.textContent = `Argent : ${money} pièces`;
+                
+                if (currentTarget.lives === 0) {
+                    const captureTime = (currentTime - captureStartTime) / 1000;
+                    totalCaptureTime += captureTime;
+                    totalCaptures++;
+                    totalCapturesDisplay.textContent = `Cibles capturées : ${totalCaptures}`;
+                    handleCapture(captureTime);
+                } else {
+                    showMessage(`${currentTarget.name} touché ! Encore ${currentTarget.lives} vies.`, "green");
+                    moveTarget();
+                }
+                
+                updateStats();
+                clearTimeout(moveTimeout);
+            } else {
+                const fails = [
+                    `Oups ! ${currentTarget.name} vous a fait un croche-pied.`,
+                    `Raté ! ${currentTarget.name} vous nargue.`,
+                    `Zut ! Votre arme s'est enrayée avec une banane.`
+                ];
+                showMessage(fails[Math.floor(Math.random() * fails.length)], "red");
+            }
+        });
+
+        function handleCapture(captureTime) {
+            showMessage(`${currentTarget.name} capturé en ${captureTime.toFixed(2)} secondes !`, "green");
+            targetContainer.style.display = 'none';  // Cache la cible actuelle
+            clearInterval(timerInterval);
+            
+            setTimeout(() => {
+                changeTarget();
+            }, 1000);  // Attendre 1 seconde avant de changer de cible
+        }
+
+        function moveTarget() {
+            const maxX = playArea.clientWidth - 100;
+            const maxY = playArea.clientHeight - 100;
+            const newX = Math.random() * maxX;
+            const newY = Math.random() * maxY;
+            targetContainer.style.left = `${newX}px`;
+            targetContainer.style.top = `${newY}px`;
+            totalMoves++;
+            updateStats();
+
+            const nextMoveDelay = Math.random() * (currentTarget.maxDelay - currentTarget.minDelay) + currentTarget.minDelay;
+            moveTimeout = setTimeout(moveTarget, nextMoveDelay);
+        }
+
+        function changeTarget() {
+            const availableTargets = targets.filter(t => t.minCaptures <= totalCaptures);
+            let newTarget;
+            do {
+                newTarget = availableTargets[Math.floor(Math.random() * availableTargets.length)];
+            } while (newTarget === currentTarget && availableTargets.length > 1);
+            
+            currentTarget = { ...newTarget, lives: 3 };
+            target.textContent = currentTarget.emoji;
+            updateLivesDisplay();
+            showMessage(`Nouvelle cible : ${currentTarget.name} est entré dans l'arène !`, "blue");
+            targetContainer.style.display = 'block';  // Affiche la nouvelle cible
+            moveTarget();
+            captureStartTime = Date.now();
+            timeLeft = 15;
+            timerProgress.value = timeLeft;
+            timerCount.textContent = timeLeft;
+            timerCount.style.color = 'green';  // Réinitialise la couleur
+            clearInterval(timerInterval);
+            timerInterval = setInterval(updateTimer, 1000);
+        }
+
+        function showMessage(text, color) {
+            messageDisplay.textContent = text;
+            messageDisplay.style.color = color;
+        }
+
+        function updateStats() {
+            const averageCaptureTime = totalCaptures > 0 ? totalCaptureTime / totalCaptures : 0;
+            statsDisplay.textContent = `Temps moyen de capture : ${averageCaptureTime.toFixed(2)}s`;
+        }
+
+        changeTarget(); // Initialise la première cible
+    </script>
+</body>
+</html>
